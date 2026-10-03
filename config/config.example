@@ -1,0 +1,30 @@
+# agent-bridge configuration (KEY=VALUE). Every key can also be overridden per command with BRIDGE_<KEY>.
+
+# tmux session that hosts every agent window.
+TMUX_SESSION=relay
+# How prompts and briefs refer to the person in charge.
+HUMAN=the human
+# none | iterm — iterm also opens an iTerm tab attached to each new agent (macOS).
+TERMINAL=none
+# Bring each new agent window to the front of your attached tmux view.
+FOCUS=1
+# human -> orchestrator -> builder. A builder never spawns.
+MAX_DEPTH=2
+# Messages above this many bytes are written to a file and the path is sent.
+SOFT_CAP=6144
+# Default Codex profile (~/.codex/<profile>.config.toml) and the profiles treated as read-only.
+CODEX_PROFILE=build
+CODEX_READONLY_PROFILES=architect
+# Reasoning effort for spawned agents when `--effort` is not given. Empty = whatever your own Claude/Codex settings
+# say, which is usually your interactive maximum. Claude: low|medium|high|xhigh|max. Codex: low|medium|high|xhigh.
+CLAUDE_EFFORT=
+CODEX_EFFORT=
+# Create CLAUDE.md -> AGENTS.md in a worktree that has only AGENTS.md.
+CLAUDE_MD_SYMLINK=1
+# Where --worktree creates worktrees (default: <main-repo-parent>/worktrees/<repo>).
+WORKTREE_ROOT=
+# Extra environment variables removed before launching an agent, space separated
+# (e.g. a gateway override you never want agents to inherit).
+SCRUB_ENV=
+# A peer holding the baton this long without sending anything is reported by `bridge events --stalls`.
+STALL_MINUTES=15
