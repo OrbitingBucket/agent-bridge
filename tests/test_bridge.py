@@ -16,7 +16,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from agent_bridge import cli, events, messaging, registry, spawn, tmux, trust  # noqa: E402
+from agent_bridge import cli, doctor, events, messaging, registry, spawn, tmux, trust, wait  # noqa: E402
 from agent_bridge.registry import Agent  # noqa: E402
 
 FAKE_CODEX = """#!/bin/sh
@@ -699,6 +699,213 @@ class TrustTests(BridgeTestCase):
             code, out, _ = self.run_cli("trust", "--dry-run", work)
         self.assertEqual(code, 0)
         self.assertIn("already trusted", out)
+
+
+class TeamScopeTests(BridgeTestCase):
+    """A spawned agent is on a team. The human's other sessions are on none, and must not be reachable by accident."""
+
+    def setUp(self):
+        super().setUp()
+        registry.put(Agent(name="t-cdx", runtime="codex", team="t", pid=self.live_pid(), spawned_by="human-orc",
+                           extra={"peer": "lead"}))
+        os.environ["BRIDGE_NAME"] = "t-cdx"
+
+    def test_unrelated_session_on_no_team_is_refused_then_allowed(self):
+        _, server = self.claude_session("other-work")
+        code, _, err = self.run_cli("send", "other-work", "hi")
+        self.assertEqual(code, 7)
+        self.assertIn("on no team", err)
+        self.assertEqual(server.received, [])
+        self.assertEqual((self.last_event()["outcome"], self.last_event()["error"]), ("error", "cross_team"))
+        code, _, _ = self.run_cli("send", "--cross-team", "other-work", "hi")
+        self.assertEqual(code, 0)
+
+    def test_spawner_and_launch_peer_on_no_team_are_reachable(self):
+        _, spawner = self.claude_session("human-orc")
+        _, peer = self.claude_session("lead")
+        self.assertEqual(self.run_cli("send", "human-orc", "DID: x")[0], 0)
+        self.assertEqual(self.run_cli("send", "lead", "DID: y")[0], 0)
+        self.assertEqual((len(spawner.wait()), len(peer.wait())), (1, 1))
+
+    def test_an_agent_on_no_team_is_not_restricted(self):
+        os.environ["BRIDGE_NAME"] = "human-orc"
+        _, server = self.claude_session("other-work")
+        self.assertEqual(self.run_cli("send", "other-work", "hi")[0], 0)
+        self.assertEqual(len(server.wait()), 1)
+
+    def test_launch_peer_is_recorded_with_the_reservation(self):
+        os.environ.pop("BRIDGE_NAME")
+        seen = {}
+
+        def reserve(agent, check_writers):
+            seen["extra"] = agent.extra
+            raise registry.Conflict("the name 'x' is already taken by a live or launching agent")
+        with mock.patch.object(registry, "reserve", side_effect=reserve), self.assertRaises(spawn.SpawnError):
+            spawn.spawn(spawn.Request(runtime="codex", dir=str(self.root / "work"), name="x", peer="lead"))
+        self.assertEqual(seen["extra"], {"peer": "lead"})
+
+
+class WaitTests(BridgeTestCase):
+    def setUp(self):
+        super().setUp()
+        os.environ["BRIDGE_NAME"] = "orc"
+
+    def sent(self, frm, to, kind="BATON", task="T", outcome="delivered"):
+        events.emit("send", to=to, kind=kind, task=task, outcome=outcome, msg="m1", **{"from": frm})
+
+    def codex_peer(self, name="cdx", pid=None):
+        registry.put(Agent(name=name, runtime="codex", team="t", pid=pid or self.live_pid()))
+
+    def test_reply_already_in_the_log_ends_the_wait_at_once(self):
+        self.codex_peer()
+        self.sent("orc", "cdx")
+        self.sent("cdx", "orc")
+        out = wait.wait("cdx", timeout=5, interval=0.01)
+        self.assertEqual((out.state, out.exit_code), (wait.REPLY, 0))
+        self.assertIn("kind=BATON task=T", out.detail)
+
+    def test_messages_from_before_my_last_send_do_not_count(self):
+        self.codex_peer()
+        self.sent("cdx", "orc")
+        self.sent("orc", "cdx")
+        self.assertEqual(wait.wait("cdx", timeout=0, interval=0.01).state, wait.TIMEOUT)
+
+    def test_fyi_and_other_tasks_do_not_hand_the_baton_back(self):
+        self.codex_peer()
+        self.sent("orc", "cdx")
+        self.sent("cdx", "orc", kind="FYI")
+        out = wait.wait("cdx", timeout=0, interval=0.01)
+        self.assertEqual((out.state, out.exit_code), (wait.TIMEOUT, 124))
+        self.assertIn("1 message(s) arrived that did not count", out.detail)
+        self.assertEqual(wait.wait("cdx", timeout=0, interval=0.01, any_kind=True).state, wait.REPLY)
+        self.sent("cdx", "orc", task="other")
+        self.assertEqual(wait.wait("cdx", timeout=0, interval=0.01, task="T").state, wait.TIMEOUT)
+        self.assertEqual(wait.wait("cdx", timeout=0, interval=0.01, task="other").state, wait.REPLY)
+
+    def test_a_message_to_someone_else_or_undelivered_does_not_count(self):
+        self.codex_peer()
+        self.sent("orc", "cdx")
+        self.sent("cdx", "somebody-else")
+        self.sent("cdx", "orc", outcome="error")
+        self.assertEqual(wait.wait("cdx", timeout=0, interval=0.01).state, wait.TIMEOUT)
+
+    def test_reply_arriving_during_the_wait(self):
+        self.codex_peer()
+        timer = threading.Timer(0.15, lambda: self.sent("cdx", "orc"))
+        timer.start()
+        try:
+            out = wait.wait("cdx", timeout=5, interval=0.02)
+        finally:
+            timer.join()
+        self.assertEqual(out.state, wait.REPLY)
+
+    def test_dead_codex_peer(self):
+        p = subprocess.Popen(["true"])
+        p.wait()
+        self.codex_peer(pid=p.pid)
+        out = wait.wait("cdx", timeout=5, interval=0.01)
+        self.assertEqual((out.state, out.exit_code), (wait.DEAD, 3))
+        self.assertIn("bridge resume cdx", out.detail)
+
+    def test_codex_dialog_is_reported_as_blocked(self):
+        registry.put(Agent(name="cdx", runtime="codex", pid=self.live_pid(), pane_id="%5", tmux_target="dev:cdx"))
+        with mock.patch.object(tmux, "capture", return_value="Trust this folder?\n  enter continue · esc quit"):
+            out = wait.wait("cdx", timeout=5, interval=0.01)
+        self.assertEqual((out.state, out.exit_code), (wait.BLOCKED, 12))
+        self.assertIn("dev:cdx", out.detail)
+
+    def test_claude_peer_blocked_on_a_prompt(self):
+        self.claude_session("bld", status="waiting", waiting="permission prompt")
+        out = wait.wait("bld", timeout=5, interval=0.01)
+        self.assertEqual(out.state, wait.BLOCKED)
+        self.assertIn("permission prompt", out.detail)
+
+    def test_claude_peer_finishing_its_turn_ends_the_wait(self):
+        pid, _ = self.claude_session("bld", status="busy")
+        path = self.root / "claude" / "sessions" / f"{pid}.json"
+
+        def go_idle():
+            rec = json.loads(path.read_text())
+            rec["status"] = "idle"
+            path.write_text(json.dumps(rec))
+        timer = threading.Timer(0.15, go_idle)
+        timer.start()
+        try:
+            out = wait.wait("bld", timeout=5, interval=0.02)
+        finally:
+            timer.join()
+        self.assertEqual((out.state, out.exit_code), (wait.IDLE, 0))
+        self.assertIn("finished its turn", out.detail)
+
+    def test_claude_peer_idle_from_the_start_is_given_a_grace_period(self):
+        self.claude_session("bld", status="idle")
+        self.assertEqual(wait.wait("bld", timeout=0, interval=0.01, grace=60).state, wait.TIMEOUT)
+        out = wait.wait("bld", timeout=5, interval=0.01, grace=0)
+        self.assertEqual(out.state, wait.IDLE)
+        self.assertIn("idle for the whole", out.detail)
+
+    def test_cli_prints_one_line_and_maps_the_exit_code(self):
+        self.codex_peer()
+        code, out, _ = self.run_cli("wait", "cdx", "--timeout", "0")
+        self.assertEqual(code, 124)
+        self.assertTrue(out.startswith("TIMEOUT cdx: no hand-over in 0s"), out)
+        self.assertEqual((self.last_event()["event"], self.last_event()["outcome"]), ("wait", "TIMEOUT"))
+        code, _, err = self.run_cli("wait", "nobody", "--timeout", "0")
+        self.assertEqual(code, 2)
+        self.assertIn("no agent named 'nobody'", err)
+
+    def test_log_follower_survives_a_rotation(self):
+        self.assertEqual(events.cursor(), (0, 0))
+        self.sent("a", "b")
+        records, cur = events.tail((0, 0))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(cur, events.cursor())
+        self.sent("a", "b", task="before-rotation")
+        os.replace(events.log_path(), events.log_path().with_suffix(".jsonl.1"))
+        self.sent("a", "b", task="after-rotation, in a new file that is already longer than the old position")
+        records, cur = events.tail(cur)
+        self.assertEqual([r["task"][:15] for r in records], ["before-rotation", "after-rotation,"])
+        self.assertEqual(events.tail(cur)[0], [])
+
+
+class DoctorProfileTests(BridgeTestCase):
+    def profile(self, name, text):
+        (self.root / "codex" / f"{name}.config.toml").write_text(text)
+
+    def checks(self):
+        return {c.name: c for c in doctor.profile_checks()}
+
+    def test_missing_read_only_profile_fails_and_missing_default_only_warns(self):
+        checks = self.checks()
+        ro = checks["codex read-only profile architect"]
+        self.assertFalse(ro.ok)
+        self.assertFalse(ro.warn_only)
+        self.assertIn("can write", ro.detail)
+        default = checks["codex profile build"]
+        self.assertFalse(default.ok)
+        self.assertTrue(default.warn_only)
+
+    def test_profiles_present_and_correct(self):
+        self.profile("build", 'sandbox_mode = "workspace-write"\n')
+        self.profile("architect", '# note\nsandbox_mode = "read-only"\n\n[projects."/x"]\ntrust_level = "trusted"\n')
+        checks = self.checks()
+        self.assertTrue(checks["codex profile build"].ok)
+        self.assertTrue(checks["codex read-only profile architect"].ok)
+
+    def test_read_only_profile_that_can_write_fails(self):
+        self.profile("architect", 'sandbox_mode = "workspace-write"\n')
+        self.assertFalse(self.checks()["codex read-only profile architect"].ok)
+        self.profile("architect", 'model = "x"\n\n[tui]\nsandbox_mode = "read-only"\n')
+        self.assertFalse(self.checks()["codex read-only profile architect"].ok, "a key inside a table is not the top-level setting")
+
+    def test_base_config_can_make_a_profile_read_only(self):
+        (self.root / "codex" / "config.toml").write_text('sandbox_mode = "read-only"\n')
+        self.profile("architect", 'model = "x"\n')
+        self.assertTrue(self.checks()["codex read-only profile architect"].ok)
+
+    def test_configured_profile_names_are_used(self):
+        (self.root / "config" / "config").write_text("CODEX_PROFILE=write\nCODEX_READONLY_PROFILES=review audit\n")
+        self.assertEqual(sorted(self.checks()), ["codex profile write", "codex read-only profile audit", "codex read-only profile review"])
 
 
 def argparse_ns(**kw):

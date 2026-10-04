@@ -19,7 +19,7 @@ bridge send [--kind BATON|FYI] [--task <id>] <name> "<text>"
 - On a non-zero exit, read the message and act on it; don't loop. The exit codes are in PROTOCOL.md §10:
   - 3: the peer is not running. Restore it with `bridge resume <name>`.
   - 6: the name is ambiguous.
-  - 7: the recipient is on another team.
+  - 7: the recipient is on another team, or is a session on no team that is neither your spawner nor your launch peer.
   - 8: the socket transport failed.
 
 ## Receive
@@ -35,6 +35,7 @@ bridge spawn codex -d <dir> -n <name> -p build|architect -t "<brief>"   # Codex 
 bridge spawn claude -d <dir> -n <name> --peer <you> -t "<brief>"         # Claude builder, starts on the brief
 bridge team -d <dir> --codex -t "<objective>"                            # orchestrator, then builder + Codex together
 bridge list            # who is reachable, who is BLOCKED on a dialog
+bridge wait <name> --timeout 600   # timer for one handoff: REPLY | IDLE | BLOCKED | DEAD | TIMEOUT
 bridge stop <name>     # tear down a peer YOU spawned once its work is collected
 bridge resume <name>   # restore a closed Codex peer with its history
 bridge events --stalls # STALL / LOOP / BLOAT / ERRORS / BLOCKED readout
@@ -44,6 +45,7 @@ bridge events --stalls # STALL / LOOP / BLOAT / ERRORS / BLOCKED readout
 - **Launch peers in the same turn.** Each spawn blocks until its agent is ready, so issue them as parallel tool calls.
 - **Effort per lane.** Add `--effort low|medium|high`: low or medium for mechanical lanes, high for design and review. Omitting it runs the peer at the human's interactive setting.
 - **`ACTION NEEDED` from a spawn** means a dialog only the human can answer (folder trust). The bridge has already alerted them. Do not type into the window, and do not run `bridge trust`: it is for the human and refuses agents (exit 77).
+- **Waiting on a peer.** Run `bridge wait <name> --timeout <seconds>` as a background task instead of a sleep. It ends when the peer hands the baton back, finishes its turn, gets stuck on a dialog, dies, or the time is up, and its one line says which.
 - **Depth guard.** Only an orchestrator at depth below the maximum may spawn (exit 65 otherwise). Do not work around it.
 - **One writer per worktree.** Exit 10 means another writing agent already owns this worktree. Prefer `--worktree <branch>`; use `--shared` only when the lanes touch disjoint files and you accept sharing the git index.
 - **Pass extra Codex args after `--`**, for example `-- -c model_reasoning_effort="medium"` for a genuinely simple lane.

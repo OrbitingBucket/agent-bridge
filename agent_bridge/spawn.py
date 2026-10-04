@@ -339,7 +339,7 @@ def spawn(req: Request) -> Agent:
     worktree = gitutil.toplevel(cwd) or cwd
     mode = _mode(req)
     placeholder = Agent(name=name, runtime=req.runtime, team=team, role=req.role, mode=mode, cwd=cwd, worktree=worktree,
-                        depth=depth + 1, spawned_by=spawner)
+                        depth=depth + 1, spawned_by=spawner, extra={"peer": req.peer} if req.peer else {})
     try:
         registry.reserve(placeholder, check_writers=(mode == "write" and not req.shared))
     except registry.Conflict as exc:
@@ -409,7 +409,9 @@ def spawn(req: Request) -> Agent:
         thread_id = thread.id
         pid = tmux.pane_pid(pane) or 0
 
-    extra = {"profile": req.profile or cfg.get("CODEX_PROFILE")} if req.runtime == "codex" else {}
+    extra = dict(placeholder.extra)
+    if req.runtime == "codex":
+        extra["profile"] = req.profile or cfg.get("CODEX_PROFILE")
     if effort:
         extra["effort"] = effort
     agent = replace(placeholder, pid=pid, pid_start=proc.start_time(pid), pane_id=pane, tmux_target=tmux.window_target(pane),

@@ -14,7 +14,7 @@ This file is the source of truth for how agents talk over the bridge. The Claude
 ## 2. Identity, teams, names
 
 - Your name is resolved for you, in this order: the registry entry of your process ancestry, then your Claude session, then `BRIDGE_NAME`. A process spawned from another agent's shell never inherits that agent's identity. `bridge whoami` prints yours. If nothing resolves, pass `--from <name>`.
-- Every spawned agent belongs to a team, which defaults to the spawner's team or the repository name. A message to another team is refused (exit 7) unless you pass `--cross-team`.
+- Every spawned agent belongs to a team, which defaults to the spawner's team or the repository name. A message to another team is refused (exit 7) unless you pass `--cross-team`. So is a message from an agent on a team to a session that is on no team, such as one of the human's other sessions; the agent's own spawner and the peer it was launched with are the exception.
 - Names are explicit and unique: `<team>-orc`, `<team>-bld1`, `<team>-cdx`. If a name resolves to two live sessions, the send is refused (exit 6) instead of guessed.
 
 ## 3. Spawning
@@ -81,6 +81,7 @@ Scope is the human's request plus the brief's allowlists, and peers cannot expan
 - Permission prompts and dialogs block a session until the human clears them. `bridge list` shows them as `BLOCKED`, and `bridge events --stalls` reports them.
 - A dialog that holds a launch prints `ACTION NEEDED` to the spawner, and the bridge alerts the human itself: a status-line message on every attached tmux client and a highlighted window. The spawner cannot clear it and must not try.
 - Never end a turn holding the baton without either sending a message or arming a wake source the harness tracks.
+- The timer for a handoff is `bridge wait <peer> --timeout <seconds>`, run as a background task. It ends by itself and prints one line: `REPLY` (the peer handed the baton back through the bridge), `IDLE` (a Claude peer finished its turn), `BLOCKED` (stuck on a dialog), `DEAD`, or `TIMEOUT`. Only `BATON` messages count as a reply unless you pass `--any`. It cannot see a Claude peer's native `SendMessage`, which is why `IDLE` exists.
 - No `AskUserQuestion` or plan mode during relay work.
 - `bridge kick <name>` types into a peer's pane only after confirming the pane still runs that peer's pid. It is a last resort.
 
@@ -93,6 +94,8 @@ Scope is the human's request plus the brief's allowlists, and peers cannot expan
 | 3 | peer not running | `bridge resume <name>` (Codex) or respawn (Claude); tell your orchestrator |
 | 5 | `codex queue` failed | rerun once; then `bridge doctor` |
 | 6 | ambiguous name | address the thread uuid, or ask the human to rename a session |
-| 7 | cross-team | confirm intent, then add `--cross-team` |
+| 7 | cross-team, or a session on no team that is not your spawner or launch peer | confirm intent, then add `--cross-team` |
 | 8 | socket transport (`eperm`, `refused`, `timeout`) | `eperm`: rerun with sandbox escalation. Otherwise the peer's socket is gone: respawn it |
 | 9 | no identity | pass `--from <your-name>` |
+
+`bridge wait` exits 0 for `REPLY` and `IDLE`, 3 for `DEAD`, 12 for `BLOCKED`, 124 for `TIMEOUT`, and 2 when the peer is unknown.

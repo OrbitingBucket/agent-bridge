@@ -72,6 +72,57 @@ def read(paths: Optional[Iterable[Path]] = None) -> Iterator[Dict]:
                     continue
 
 
+def _parse(chunk: bytes) -> tuple:
+    """Complete lines of `chunk` as records, and how many bytes they took (a half-written last line is left)."""
+    end = chunk.rfind(b"\n") + 1
+    records = []
+    for line in chunk[:end].splitlines():
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            continue
+    return records, end
+
+
+def cursor() -> tuple:
+    """Where the log ends right now, as (inode, size): the starting point for tail()."""
+    try:
+        st = log_path().stat()
+    except FileNotFoundError:
+        return 0, 0
+    return st.st_ino, st.st_size
+
+
+def tail(cur: tuple) -> tuple:
+    """Records appended since `cur`, and the cursor to pass next time. A rotation is recognised by the file's inode,
+    not its size (the new file can outgrow the old position between two calls): the rest of the rotated file is read
+    first, then the new file from its start."""
+    ino, offset = cur
+    path = log_path()
+    records: List[Dict] = []
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        st = None
+    if st is None or st.st_ino != ino:
+        rotated = path.with_suffix(".jsonl.1")
+        try:
+            if ino and rotated.stat().st_ino == ino:
+                with open(rotated, "rb") as fh:
+                    fh.seek(offset)
+                    records += _parse(fh.read())[0]
+        except OSError:
+            pass
+        ino, offset = (st.st_ino if st else 0), 0
+    if st is not None and st.st_size > offset:
+        with open(path, "rb") as fh:
+            fh.seek(offset)
+            new, used = _parse(fh.read())
+        records += new
+        offset += used
+    return records, (ino, offset)
+
+
 def _epoch(ts: str) -> float:
     return time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
 

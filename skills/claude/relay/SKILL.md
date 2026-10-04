@@ -78,11 +78,15 @@ At every moment exactly ONE side holds the baton. A SendMessage hands it over.
   is both sides idle, each believing the other owes a message.
 - **Orchestrator SLA timer**: after each handoff that has an expected
   turnaround, arm one tracked background job — a literal
-  `sleep <seconds>; echo SLA-CHECK <task-id>` with run_in_background — before
-  ending the turn. When it re-invokes you: builder already reported → ignore;
-  silence → run §4 liveness. One timer per handoff, no loops, no polling. This
-  covers the one failure SendMessage can't: a peer wedged on a permission
-  prompt still ACCEPTS deliveries but never processes them.
+  `bridge wait <peer> --timeout <seconds>` with run_in_background — before
+  ending the turn. It ends by itself and its one output line starts with the
+  result: `REPLY` (the peer handed the baton back through the bridge), `IDLE`
+  (a Claude peer finished its turn), `BLOCKED` (stuck on a dialog), `DEAD` or
+  `TIMEOUT`. When it re-invokes you: peer already reported → ignore; `IDLE`
+  with no report, or `TIMEOUT` → run §4 liveness; `BLOCKED` → tell the human
+  which window; `DEAD` → §4 step 4. One timer per handoff, no loops, no
+  polling. This covers the one failure SendMessage can't: a peer wedged on a
+  permission prompt still ACCEPTS deliveries but never processes them.
 
 Message format (every message, both directions):
 

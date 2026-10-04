@@ -7,6 +7,7 @@ Local messaging, spawning and supervision for **Claude Code** and **OpenAI Codex
  bridge send app-cdx "BATON: yours ..."          # Claude → Codex   (codex queue, liveness-checked)
  bridge send app-orc "DID: ... EVIDENCE: ..."    # Codex → Claude   (Claude peer socket)
  bridge list                                      # who is reachable; who is BLOCKED on a dialog
+ bridge wait app-cdx --timeout 600                # timer for one handoff: REPLY | IDLE | BLOCKED | DEAD | TIMEOUT
  bridge events --stalls                           # stalled batons, loops, oversize, errors, blocked
  bridge doctor [--loopback]                       # verify every dependency; optional live round trip
  bridge trust ~/code/app                          # you, once per repo: Codex skips its folder-trust dialog
@@ -20,13 +21,13 @@ Claude Code sessions can already message each other (`ListAgents` / `SendMessage
 
 - **Provenance marker** on every message (`human=false authority=none`), so a peer can never pass itself off as the human or launder an approval.
 - **Identity from process ancestry**, never from inherited environment variables, so a child agent cannot sign as its parent.
-- **Unique names and team scoping.** An ambiguous name or a cross-team send is refused, never guessed.
+- **Unique names and team scoping.** An ambiguous name or a cross-team send is refused, never guessed. A spawned agent reaches its own team, its spawner and its launch peer; your other sessions are out of its reach unless it passes `--cross-team`.
 - **One writer per git worktree** by default, with `--worktree <branch>` for isolation. Agents sharing a worktree share the index and the stash.
 - **Per-team ledgers** in `<repo>/.relay/<team>/`, which is git-excluded.
 - **Large messages spill** to a file in the recipient's repo instead of being refused.
 - **Every send, launch and failure is logged** in `~/.local/state/agent-bridge/events.jsonl`. The log holds hashes and sizes, never message bodies.
 - **Depth guard**: human → orchestrator → builder is the maximum.
-- **`bridge doctor`** checks the undocumented internals this relies on: the Claude peer socket and session files, and the Codex state DB schema. Run it after every Claude or Codex upgrade.
+- **`bridge doctor`** checks the undocumented internals this relies on: the Claude peer socket and session files, and the Codex state DB schema. It also checks the Codex profiles: a profile the bridge counts as read-only must really be read-only, because Codex silently ignores a profile whose file is missing. Run it after every Claude or Codex upgrade.
 
 ## Requirements
 

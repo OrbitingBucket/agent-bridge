@@ -102,6 +102,27 @@ def resolve(name: str, runtime: str = "", force: bool = False) -> Target:
                   liveness=_codex_liveness(thread, force))
 
 
+def _own_contacts(name: str) -> set:
+    """The sessions an agent was launched to talk to: whoever spawned it and the peer named at launch."""
+    agent = registry.get(name)
+    if agent is None:
+        return set()
+    return {n for n in (agent.spawned_by, agent.extra.get("peer", "")) if n}
+
+
+def _check_team(me: Me, target: Target, cross_team: bool) -> None:
+    """Team scope. An agent on a team reaches its own team, plus the session that spawned it and the peer it was
+    launched with (a human-started orchestrator is on no team). Anything else needs --cross-team: another team, or
+    one of the human's unrelated sessions, which are on no team at all."""
+    if cross_team or not me.team or me.team == target.team:
+        return
+    if target.team:
+        raise SendError("cross_team", f"'{me.name}' (team {me.team}) is messaging '{target.name}' (team {target.team}); pass --cross-team if intended")
+    if target.name not in _own_contacts(me.name):
+        raise SendError("cross_team", f"'{me.name}' (team {me.team}) is messaging '{target.name}', which is on no team and is neither "
+                                      f"its spawner nor its launch peer; pass --cross-team if intended")
+
+
 def _spill(target: Target, msg_id: str, text: str, preview: int) -> tuple:
     try:
         base = gitutil.relay_dir(target.cwd, "spill") if target.cwd and Path(target.cwd).is_dir() else config.state_dir() / "spill"
@@ -135,8 +156,7 @@ def send(to: str, text: str, kind: str = "BATON", task: str = "-", sender: str =
         if me is None:
             raise SendError("no_identity", "cannot tell who is sending: not a registered agent, not inside a Claude session, no BRIDGE_NAME. Pass --from <your-name> — for a Codex session, its thread name (set with /rename) so replies can reach you")
         target = resolve(to, runtime, force)
-        if me.team and target.team and me.team != target.team and not cross_team:
-            raise SendError("cross_team", f"'{me.name}' (team {me.team}) is messaging '{target.name}' (team {target.team}); pass --cross-team if intended")
+        _check_team(me, target, cross_team)
         label = target.name if marker.SAFE_VALUE.match(target.name) else (target.thread or "unnamed")
         env = marker.Envelope(me.name, f"{target.runtime}:{label}", task, kind, me.team or target.team or "-").with_id()
         try:

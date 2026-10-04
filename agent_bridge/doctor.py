@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
 import uuid
 from dataclasses import dataclass
-from typing import List
+from pathlib import Path
+from typing import List, Optional
 
 from . import claude, codex, config, events, registry, tmux
 from .identity import whoami
@@ -18,6 +20,54 @@ class Check:
     ok: bool
     detail: str
     warn_only: bool = False
+
+
+def _sandbox_mode(path: Path) -> Optional[str]:
+    """The top-level sandbox_mode of a Codex config file: the keys before its first table header."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("["):
+            break
+        match = re.match(r'sandbox_mode\s*=\s*"([^"]*)"', line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def profile_checks() -> List[Check]:
+    """Codex ignores a profile whose file is missing and runs on the base config. For the default profile that is
+    only untidy. For a profile the bridge counts as read-only it means a peer that can write while the one-writer
+    rule lets it share a worktree."""
+    cfg = config.load()
+    home = config.codex_home()
+    base = _sandbox_mode(home / "config.toml")
+    readonly = cfg.get("CODEX_READONLY_PROFILES").split()
+    out: List[Check] = []
+    for profile in dict.fromkeys([cfg.get("CODEX_PROFILE")] + readonly):
+        if not profile:
+            continue
+        path = home / f"{profile}.config.toml"
+        exists = path.is_file()
+        effective = (_sandbox_mode(path) if exists else None) or base
+        if profile in readonly:
+            if effective == "read-only":
+                detail = f"{path.name}: read-only" if exists else f"{path.name} is missing, but config.toml is read-only"
+            elif exists:
+                detail = (f"{path.name} gives sandbox {effective or 'the Codex default'}, not read-only, "
+                          f"while the bridge counts '{profile}' as a non-writer; set sandbox_mode = \"read-only\" in it")
+            else:
+                detail = (f"{path.name} is missing: Codex ignores an unknown profile, so `-p {profile}` can write while "
+                          f"the bridge counts it as a non-writer. Create it with: sandbox_mode = \"read-only\"")
+            out.append(Check(f"codex read-only profile {profile}", effective == "read-only", detail))
+        else:
+            detail = (f"{path.name} (sandbox {effective or 'the Codex default'})" if exists
+                      else f"{path.name} is missing; Codex ignores an unknown profile and runs on your base config")
+            out.append(Check(f"codex profile {profile}", exists, detail, warn_only=True))
+    return out
 
 
 def _version(cmd: str) -> str:
@@ -53,6 +103,7 @@ def checks() -> List[Check]:
     if codex.available():
         res = subprocess.run(["codex", "queue", "--help"], capture_output=True, text=True)
         out.append(Check("codex queue command", res.returncode == 0 and "--thread" in res.stdout, "present" if res.returncode == 0 else res.stderr.strip()[:120]))
+        out += profile_checks()
     agents = registry.all_agents()
     dead = [a.name for a in agents if not a.live]
     out.append(Check("registry", not dead, f"{len(agents)} agents, {len(dead)} dead" + (" — run: bridge gc" if dead else ""), warn_only=True))

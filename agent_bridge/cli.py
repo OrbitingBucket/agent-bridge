@@ -5,7 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
-from . import claude, config, doctor, events, messaging, registry, spawn, trust
+from . import claude, config, doctor, events, messaging, registry, spawn, trust, wait
 from .identity import whoami
 
 COMPAT = {"agent-send", "codex-send", "codex-relay", "claude-relay", "team-up", "agent-kick"}
@@ -124,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     k.add_argument("text", nargs=argparse.REMAINDER)
     sub.add_parser("whoami")
     sub.add_parser("import-legacy", help="import live entries from ~/.claude/relay/bridge-registry.conf (v0)")
+    w = sub.add_parser("wait", help="the timer for one handoff: ends when the peer hands the baton back, finishes its turn, "
+                                    "gets stuck on a dialog, dies, or the time is up")
+    w.add_argument("peer")
+    w.add_argument("--timeout", type=int, default=600, help="seconds (default 600)")
+    w.add_argument("--task", default="", help="only a message with this task id counts")
+    w.add_argument("--any", dest="any_kind", action="store_true", help="count FYI messages too, not only BATON")
     tr = sub.add_parser("trust", help="human only: approve a folder for Codex once, so spawns there skip its trust dialog")
     tr.add_argument("dir", nargs="?", default=".")
     tr.add_argument("--dry-run", action="store_true")
@@ -370,6 +376,20 @@ def cmd_import_legacy(_args) -> int:
     return 0
 
 
+def cmd_wait(args) -> int:
+    import time
+    started = time.time()
+    try:
+        outcome = wait.wait(args.peer, timeout=args.timeout, any_kind=args.any_kind, task=args.task)
+    except wait.WaitError as exc:
+        print(f"bridge wait: {exc}", file=sys.stderr)
+        return exc.code
+    waited = int(time.time() - started)
+    print(f"{outcome.state} {outcome.detail} (waited {waited}s)")
+    events.emit("wait", peer=args.peer, outcome=outcome.state, waited=waited)
+    return outcome.exit_code
+
+
 def cmd_trust(args) -> int:
     caller = trust.agent_caller()
     if caller:
@@ -417,7 +437,7 @@ def main(argv: Optional[List[str]] = None, prog: str = "bridge") -> int:
     handler = {
         "send": cmd_send, "spawn": cmd_spawn, "resume": cmd_resume, "team": cmd_team, "stop": lambda a: _stop(a),
         "list": cmd_list, "gc": cmd_gc, "doctor": cmd_doctor, "events": cmd_events, "kick": cmd_kick, "whoami": cmd_whoami, "import-legacy": cmd_import_legacy,
-        "trust": cmd_trust,
+        "trust": cmd_trust, "wait": cmd_wait,
     }[args.cmd]
     return handler(args)
 
