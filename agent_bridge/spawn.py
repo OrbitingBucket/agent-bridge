@@ -10,9 +10,9 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
-from . import claude, codex, config, events, gitutil, messaging, proc, registry, tmux
+from . import claude, codex, config, events, gitutil, messaging, proc, registry, terminal, tmux
 from .identity import whoami
 from .registry import Agent
 
@@ -217,6 +217,25 @@ def _wait_codex_ready(name: str, pane_id: str, timeout: int = 120) -> None:
     raise SpawnError(f"Codex '{name}' did not reach its prompt in {timeout}s (window closed). Last screen lines:\n{tail}")
 
 
+def _await_codex_thread(pane_id: str, name: str, lookup: Callable[[], Optional[codex.Thread]], renamed: bool,
+                        attempts: int = 20) -> Optional[codex.Thread]:
+    """Poll for the launched thread. Codex 0.163 can drop an Enter that lands just after its composer first draws,
+    leaving `/rename <name>` typed but unsubmitted; when the composer still holds it, press Enter again."""
+    for i in range(attempts):
+        thread = lookup()
+        if thread:
+            return thread
+        if renamed and i % 3 == 2 and f"/rename {name}" in _composer_line(tmux.capture(pane_id)):
+            tmux.send_enter(pane_id)
+        time.sleep(1)
+    return None
+
+
+def _composer_line(screen: str) -> str:
+    prompts = [l for l in screen.splitlines() if l.lstrip().startswith("›")]
+    return prompts[-1] if prompts else ""
+
+
 def _codex_argv(req: Request, cwd: str, resume_uuid: str, effort: str = "") -> List[str]:
     cfg = config.load()
     # Codex 0.160 no longer honours this override for a git repository; `bridge trust` is what avoids the dialog.
@@ -265,26 +284,15 @@ def _boot_brief(name: str, profile: str, task: str, restored: bool, peer: str, s
     return text + (f" Initial task {_task_origin(spawner)}: {task}" if task else "")
 
 
-def _open_tab(name: str, pane_id: str) -> None:
-    cfg = config.load()
-    if cfg.get("TERMINAL") != "iterm":
-        return
-    session = tmux.window_target(pane_id).partition(":")[0]
-    view = f"view-{name}"
-    if not tmux.has_session(view):
-        subprocess.run(["tmux", "new-session", "-d", "-t", session, "-s", view], capture_output=True)
-    subprocess.run(["tmux", "select-window", "-t", f"{view}:{name}"], capture_output=True)
-    tmux_bin = subprocess.run(["sh", "-c", "command -v tmux"], capture_output=True, text=True).stdout.strip() or "tmux"
-    cmd = f"{tmux_bin} attach-session -t {view}".replace('"', '\\"')
-    script = (f'tell application "iTerm"\nactivate\nif (count of windows) = 0 then\n'
-              f'create window with default profile command "{cmd}"\nelse\n'
-              f'tell current window to create tab with default profile command "{cmd}"\nend if\nend tell')
-    subprocess.run(["osascript", "-e", script], capture_output=True)
+def _open_tab(name: str, pane_id: str, focus: bool) -> None:
+    """A terminal tab on the agent's window when the human's terminal supports it (TERMINAL=auto|kitty|iterm)."""
+    terminal.open_tab(name, pane_id, focus=focus)
 
 
 def _fail(name: str, pane: str, script: Optional[Path], msg: str, code: int = 1) -> SpawnError:
     if pane:
         tmux.kill(pane)
+    terminal.close_tab(name)
     if script is not None and script.exists():
         script.unlink()
     registry.release(name)
@@ -380,9 +388,10 @@ def spawn(req: Request) -> Agent:
         pane = tmux.new_window(cfg.get("TMUX_SESSION"), name, f"/bin/sh {shlex.quote(str(script))}")
     except (OSError, RuntimeError) as exc:
         raise _fail(name, pane, script, f"launch failed: {exc}")
-    if (cfg.flag("FOCUS") if req.focus is None else req.focus):
+    focus = cfg.flag("FOCUS") if req.focus is None else req.focus
+    if focus:
         tmux.focus(pane)
-    _open_tab(name, pane)
+    _open_tab(name, pane, focus)
 
     thread_id = ""
     if req.runtime == "claude":
@@ -395,14 +404,11 @@ def spawn(req: Request) -> Agent:
             _wait_codex_ready(name, pane)
         except SpawnError as exc:
             raise _fail(name, pane, script, str(exc), exc.code)
-        if not (restored and codex.thread_by_id(resume_uuid) and codex.thread_by_id(resume_uuid).name == name):
+        rename = not (restored and codex.thread_by_id(resume_uuid) and codex.thread_by_id(resume_uuid).name == name)
+        if rename:
             tmux.type_text(pane, f"/rename {name}")
-        thread = None
-        for _ in range(20):
-            thread = codex.thread_by_id(resume_uuid) if resume_uuid else codex.new_thread(name, cwd, known_threads)
-            if thread:
-                break
-            time.sleep(1)
+        lookup = (lambda: codex.thread_by_id(resume_uuid)) if resume_uuid else (lambda: codex.new_thread(name, cwd, known_threads))
+        thread = _await_codex_thread(pane, name, lookup, rename)
         if thread is None:
             tail = "\n".join([l for l in tmux.capture(pane).splitlines() if l.strip()][-6:])
             raise _fail(name, pane, script, f"could not resolve the thread id for Codex '{name}' after /rename (window closed). Last screen lines:\n{tail}")
@@ -438,6 +444,7 @@ def stop(name: str, force: bool = False) -> Agent:
         raise SpawnError(f"'{name}' was spawned by {agent.spawned_by}, not you; pass --force to stop it anyway", code=7)
     if agent.pane_id and tmux.pane_alive(agent.pane_id):
         tmux.kill(agent.pane_id)
+    terminal.close_tab(name)
     registry.remove([name])
     events.emit("stop", agent=name, by=me.name if me else None)
     return agent

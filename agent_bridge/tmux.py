@@ -27,6 +27,23 @@ def has_session(name: str) -> bool:
     return _run("has-session", "-t", name).returncode == 0
 
 
+def binary() -> str:
+    return shutil.which("tmux") or "tmux"
+
+
+def new_grouped_session(name: str, group: str) -> bool:
+    """A second session sharing `group`'s windows with its own current window: one more view of the same agents."""
+    return _run("new-session", "-d", "-t", group, "-s", name).returncode == 0
+
+
+def select_window(target: str) -> None:
+    _run("select-window", "-t", target)
+
+
+def kill_session(name: str) -> None:
+    _run("kill-session", "-t", name)
+
+
 def new_window(session: str, name: str, command: str) -> str:
     """Create a window running `command` and return its STABLE pane id (%N)."""
     fmt = "#{pane_id}"
@@ -68,6 +85,10 @@ def type_text(pane_id: str, text: str) -> None:
     """Two-step send: a same-call Enter races the paste and leaves the text unsubmitted."""
     _run("send-keys", "-t", pane_id, "-l", text)
     time.sleep(1)
+    send_enter(pane_id)
+
+
+def send_enter(pane_id: str) -> None:
     _run("send-keys", "-t", pane_id, "Enter")
 
 

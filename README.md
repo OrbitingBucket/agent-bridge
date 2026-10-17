@@ -3,7 +3,7 @@
 Local messaging, spawning and supervision for **Claude Code** and **OpenAI Codex CLI** agents on one machine. Claude can talk to Claude, Claude to Codex, and Codex back to Claude. Delivery is push-only: no polling, no heartbeats, no shared files.
 
 ```
- bridge spawn codex -d ~/code/app -n app-cdx -t "fix the flaky test"     # new tmux window, focused
+ bridge spawn codex -d ~/code/app -n app-cdx -t "fix the flaky test"     # new tmux window (and a terminal tab on kitty/iTerm), focused
  bridge send app-cdx "BATON: yours ..."          # Claude → Codex   (codex queue, liveness-checked)
  bridge send app-orc "DID: ... EVIDENCE: ..."    # Codex → Claude   (Claude peer socket)
  bridge list                                      # who is reachable; who is BLOCKED on a dialog
@@ -63,6 +63,7 @@ The installer makes these changes, each one printed and reversible with `./unins
 - **Effort per lane.** `--effort low|medium|high` (also on `team` and `resume`), with defaults in `CLAUDE_EFFORT` / `CODEX_EFFORT`. Without it a spawned agent runs at your own interactive setting, which is usually the maximum.
 - **Folder trust.** Both runtimes ask once before working in a new repository, and the bridge never answers for you. Run `bridge trust <dir>` once per repository to settle it for Codex ahead of time; it covers the repository's subfolders and worktrees, under every profile. It refuses to run for an agent (exit 77). Claude Code asks once per new git repository and keeps that answer itself.
 - **Dialog alert.** When a dialog does hold a launch, every attached tmux client gets a status-line message naming the window, and that window is highlighted in the status bar until the launch resolves. This matters with `FOCUS=0`, where the window is not brought to the front.
+- **Tab per agent.** On kitty or iTerm2 every spawn also opens a terminal tab titled with the agent's name, attached to a private view of the tmux session (`view-<name>`), so each agent has its own tab while the tmux windows stay as they are. `TERMINAL=auto` (the default) uses the terminal you spawn from; `kitty`, `iterm` or `none` force it. `bridge stop` closes the tab; `FOCUS=0` opens it in the background.
 
 ## Layout
 

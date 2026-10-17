@@ -193,7 +193,9 @@ env and can come up unreachable.
   with provably disjoint files.
 - Every builder costs the human's account — prefer fewer, better-scoped builders.
 - Each new agent is a tmux window, brought to the front of the human's view
-  unless they set `FOCUS=0`. If a spawn prints `ACTION NEEDED`, a dialog only
+  unless they set `FOCUS=0`; on kitty or iTerm2 it also opens in its own
+  terminal tab (`TERMINAL=auto|kitty|iterm|none`), closed by `bridge stop`.
+  If a spawn prints `ACTION NEEDED`, a dialog only
   the human can answer (folder trust) is holding it; the bridge has already
   alerted them. Never type into that window and never run `bridge trust`
   yourself (human only, exit 77) — tell the human and wait for the spawn.

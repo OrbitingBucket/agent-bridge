@@ -396,6 +396,23 @@ class RegistryTests(BridgeTestCase):
 
 
 class SpawnPieceTests(BridgeTestCase):
+    def test_codex_rename_resubmitted_when_enter_is_dropped(self):
+        found = iter([None, None, None, None, "thread"])
+        enters = []
+        with mock.patch.object(tmux, "capture", return_value="› /rename cdx\n  model · ~/x"), \
+             mock.patch.object(tmux, "send_enter", side_effect=enters.append), \
+             mock.patch.object(spawn.time, "sleep"):
+            self.assertEqual(spawn._await_codex_thread("%1", "cdx", lambda: next(found), True), "thread")
+        self.assertEqual(enters, ["%1"])
+
+    def test_codex_rename_not_resubmitted_once_composer_is_clear(self):
+        enters = []
+        with mock.patch.object(tmux, "capture", return_value="› Ask Codex to do anything"), \
+             mock.patch.object(tmux, "send_enter", side_effect=enters.append), \
+             mock.patch.object(spawn.time, "sleep"):
+            self.assertIsNone(spawn._await_codex_thread("%1", "cdx", lambda: None, True, attempts=6))
+        self.assertEqual(enters, [])
+
     def test_launch_script_scrubs_inherited_identity(self):
         path = spawn._launch_script("x", "/tmp", ["claude", "-n", "x", "do it; rm -rf /"], {"BRIDGE_NAME": "x", "K": "a b"})
         text = path.read_text()
