@@ -441,6 +441,24 @@ class SpawnPieceTests(BridgeTestCase):
         env = spawn._hooks_env(spawn.Request(runtime="codex", dir="/tmp"), "cdx")
         self.assertEqual(env, {"MY_TOKEN": "cdx-secret"})
 
+    def test_launch_script_drops_gateway_overrides(self):
+        path = spawn._launch_script("x", "/tmp", ["/bin/sh", "-c", "env"], {"BRIDGE_NAME": "child"})
+        env = dict(os.environ, ANTHROPIC_BASE_URL="http://gw:1", ANTHROPIC_AUTH_TOKEN="t", BRIDGE_NAME="parent")
+        out = subprocess.run(["/bin/sh", str(path)], capture_output=True, text=True, env=env).stdout
+        self.assertNotIn("ANTHROPIC_BASE_URL", out)
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", out)
+
+    def test_pre_launch_hook_cannot_reroute_the_lane(self):
+        hooks = self.root / "config" / "pre-launch.d"
+        hooks.mkdir()
+        hook = hooks / "10-gw"
+        hook.write_text("#!/bin/sh\necho ANTHROPIC_BASE_URL=http://gw:1\necho ANTHROPIC_AUTH_TOKEN=t\necho ANTHROPIC_API_KEY=k\necho OK=1\n")
+        hook.chmod(0o755)
+        with redirect_stderr(io.StringIO()) as err:
+            env = spawn._hooks_env(spawn.Request(runtime="claude", dir="/tmp"), "bld")
+        self.assertEqual(env, {"OK": "1"})
+        self.assertIn("ANTHROPIC_BASE_URL", err.getvalue())
+
     def test_depth_guard(self):
         os.environ["AGENT_BRIDGE_DEPTH"] = "2"
         with self.assertRaises(spawn.SpawnError) as ctx:

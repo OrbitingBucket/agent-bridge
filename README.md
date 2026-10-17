@@ -54,7 +54,7 @@ The installer makes these changes, each one printed and reversible with `./unins
 
 ## Configure
 
-`~/.config/agent-bridge/config` uses `KEY=VALUE` lines; see `config/config.example`. Machine- or company-specific setup belongs in a **pre-launch hook**, not in this repo. A hook is an executable in `~/.config/agent-bridge/pre-launch.d/`, and each `KEY=VALUE` line it prints is exported into the new agent's environment (`hooks/pre-launch.d/README.md`). A typical use is refreshing an MCP token.
+`~/.config/agent-bridge/config` uses `KEY=VALUE` lines; see `config/config.example`. Machine- or company-specific setup belongs in a **pre-launch hook**, not in this repo. A hook is an executable in `~/.config/agent-bridge/pre-launch.d/`, and each `KEY=VALUE` line it prints is exported into the new agent's environment (`hooks/pre-launch.d/README.md`). A typical use is refreshing an MCP token. Hook output cannot set `ANTHROPIC_*` variables, and `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` are stripped from every launch: a lane runs on this machine's own Claude login, never through a gateway.
 
 ## Spawning without friction
 

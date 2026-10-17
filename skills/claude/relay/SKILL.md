@@ -192,6 +192,12 @@ env and can come up unreachable.
   how agents sweep each other's files into commits. `--shared` only for lanes
   with provably disjoint files.
 - Every builder costs the human's account — prefer fewer, better-scoped builders.
+- Lanes run plain `claude` / `codex` on this machine's own logins. Never route
+  a lane through a gateway or wrapper (claude-gw, OmniRoute, LiteLLM, an
+  `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` override, a pre-launch hook that
+  sets `ANTHROPIC_*`): the bridge strips those variables and ignores such hook
+  output. A gateway run is a headless job (`claude-gw -p …`), never a lane.
+  Model flags on a lane are the CLI aliases (`-m opus`, `-m sonnet`).
 - Each new agent is a tmux window, brought to the front of the human's view
   unless they set `FOCUS=0`; on kitty or iTerm2 it also opens in its own
   terminal tab (`TERMINAL=auto|kitty|iterm|none`), closed by `bridge stop`.

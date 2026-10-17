@@ -17,7 +17,9 @@ from .identity import whoami
 from .registry import Agent
 
 SCRUB_PREFIXES = ("CLAUDE", "AGENT_SEND_")
-SCRUB_ALWAYS = ("BRIDGE_NAME", "AI_AGENT", "ANTHROPIC_AGENT")
+# Gateway overrides never reach a lane: lanes run on this machine's own Claude login; a gateway run is a headless job.
+GATEWAY_VARS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+SCRUB_ALWAYS = ("BRIDGE_NAME", "AI_AGENT", "ANTHROPIC_AGENT") + GATEWAY_VARS
 EFFORT_RE = re.compile(r"^[a-z]+$")
 EFFORT_KEY = {"claude": "CLAUDE_EFFORT", "codex": "CODEX_EFFORT"}
 # `git worktree add` takes repository-wide locks; `bridge team` launches builders concurrently.
@@ -72,7 +74,11 @@ def _hooks_env(req: Request, name: str) -> Dict[str, str]:
         if res.returncode != 0:
             say(f"note: pre-launch hook {hook.name} exited {res.returncode}: {res.stderr.strip()[:200]}")
             continue
-        env.update(config.parse_kv(res.stdout))
+        for key, value in config.parse_kv(res.stdout).items():
+            if key.startswith("ANTHROPIC_"):
+                say(f"note: pre-launch hook {hook.name} tried to set {key}; ignored (lanes use this machine's own Claude login, never a gateway)")
+                continue
+            env[key] = value
     return env
 
 
