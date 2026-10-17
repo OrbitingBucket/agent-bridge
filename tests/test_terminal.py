@@ -58,8 +58,20 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(terminal.detect(auto, env={"TERM_PROGRAM": "iTerm.app"}), "iterm")
         self.assertEqual(terminal.detect(auto, env={}), "none")
 
-    def test_auto_is_the_default(self):
-        self.assertEqual(config.DEFAULTS["TERMINAL"], "auto")
+    def test_no_terminal_tab_is_the_default(self):
+        self.assertEqual(config.DEFAULTS["TERMINAL"], "none")
+
+
+class OneSessionTests(unittest.TestCase):
+    def test_the_session_is_created_with_a_home_window_and_agents_are_windows_in_it(self):
+        sessions = set()
+        tcalls, trun = fake_tmux(sessions)
+        with mock.patch.object(tmux, "_run", side_effect=trun):
+            tmux.new_window("relay", "bld1", "/bin/sh x.sh")
+            tmux.new_window("relay", "bld2", "/bin/sh y.sh")
+        self.assertEqual([c for c in tcalls if c[0] == "new-session"],
+                         [("new-session", "-d", "-s", "relay", "-n", "home", "-x", "220", "-y", "50")])
+        self.assertEqual([c[c.index("-n") + 1] for c in tcalls if c[0] == "new-window"], ["bld1", "bld2"])
 
 
 class KittyTabTests(unittest.TestCase):

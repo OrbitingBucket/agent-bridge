@@ -44,16 +44,19 @@ def kill_session(name: str) -> None:
     _run("kill-session", "-t", name)
 
 
+HOME_WINDOW = "home"
+
+
 def new_window(session: str, name: str, command: str) -> str:
-    """Create a window running `command` and return its STABLE pane id (%N)."""
-    fmt = "#{pane_id}"
-    window = ("new-window", "-d", "-P", "-F", fmt, "-t", f"{session}:", "-n", name, command)
-    if has_session(session):
-        res = _run(*window)
-    else:
-        res = _run("new-session", "-d", "-P", "-F", fmt, "-s", session, "-n", name, "-x", "220", "-y", "50", command)
-        if res.returncode != 0 and has_session(session):  # a concurrent spawn created the session first
-            res = _run(*window)
+    """Create a window running `command` in the one agent session and return its STABLE pane id (%N).
+
+    The session is created on first use with a plain shell window (`home`) so it outlives its agents: the human
+    attaches once (`tmux attach -t <session>`) and every agent appears as one more window there."""
+    if not has_session(session):
+        res = _run("new-session", "-d", "-s", session, "-n", HOME_WINDOW, "-x", "220", "-y", "50")
+        if res.returncode != 0 and not has_session(session):  # not a concurrent spawn creating it first
+            raise RuntimeError(res.stderr.strip() or "tmux failed to create the session")
+    res = _run("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"{session}:", "-n", name, command)
     if res.returncode != 0:
         raise RuntimeError(res.stderr.strip() or "tmux failed to create the window")
     return res.stdout.strip()

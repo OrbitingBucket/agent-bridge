@@ -4,9 +4,9 @@
 TMUX_SESSION=relay
 # How prompts and briefs refer to the person in charge.
 HUMAN=the human
-# auto | none | kitty | iterm — kitty and iTerm2 also open a terminal tab per agent, attached to its tmux window
-# (auto = the terminal you spawn from; none = tmux windows only).
-TERMINAL=auto
+# none (default: every agent is a window of the one tmux session) | kitty | iterm (opt-in: also a terminal tab per agent)
+# | auto (the terminal you spawn from).
+TERMINAL=none
 # Bring each new agent window to the front of your attached tmux view.
 FOCUS=1
 # human -> orchestrator -> builder. A builder never spawns.

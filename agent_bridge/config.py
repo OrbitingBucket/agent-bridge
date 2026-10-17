@@ -8,7 +8,7 @@ from typing import Dict
 DEFAULTS: Dict[str, str] = {
     "TMUX_SESSION": "relay",
     "HUMAN": "the human",
-    "TERMINAL": "auto",
+    "TERMINAL": "none",
     "FOCUS": "1",
     "MAX_DEPTH": "2",
     "SOFT_CAP": "6144",

@@ -198,9 +198,12 @@ env and can come up unreachable.
   sets `ANTHROPIC_*`): the bridge strips those variables and ignores such hook
   output. A gateway run is a headless job (`claude-gw -p …`), never a lane.
   Model flags on a lane are the CLI aliases (`-m opus`, `-m sonnet`).
-- Each new agent is a tmux window, brought to the front of the human's view
-  unless they set `FOCUS=0`; on kitty or iTerm2 it also opens in its own
-  terminal tab (`TERMINAL=auto|kitty|iterm|none`), closed by `bridge stop`.
+- Every agent is one window of the single tmux session `relay` (created with a
+  permanent `home` shell window, so it outlives its agents). The human attaches
+  once (`tmux attach -t relay`) and switches windows with the tmux keys; new
+  windows come to the front unless they set `FOCUS=0`. Never open terminal tabs
+  or extra tmux sessions for agents (`TERMINAL=kitty|iterm` is an opt-in the
+  human sets themselves).
   If a spawn prints `ACTION NEEDED`, a dialog only
   the human can answer (folder trust) is holding it; the bridge has already
   alerted them. Never type into that window and never run `bridge trust`
