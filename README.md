@@ -81,6 +81,10 @@ The installer makes these changes, each one printed and reversible with `./unins
 - **Codex readiness and thread naming rely on its TUI.** The launcher waits for the composer, never types into a dialog (folder trust, hook trust, update prompt), and closes the window on timeout with the last screen lines.
 - **Codex 0.160 ignores the command-line trust override for a git repository**, and it saves an answer given in the dialog into the profile file that was active. `bridge trust` writes the base `config.toml` instead, which every profile is layered on.
 - **A Codex sandbox in `workspace-write` may deny the socket connect** (`bridge send` exit 8, `eperm`). Approve the escalation once; with the installed allow rule, Codex can run `bridge` without asking.
+- **The allow rule only matches simple commands.** A `bridge send` whose text spans lines or escapes quotes is not
+  matched, so Codex asks for approval and the lane stalls. Codex sends long reports with `--file <path>`.
+- **Inside a Codex sandbox, `bridge list` and `bridge wait` see live agents as DEAD** (the sandbox hides other
+  processes). Run them from the orchestrator's side.
 
 ## License
 
