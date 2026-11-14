@@ -396,6 +396,23 @@ class RegistryTests(BridgeTestCase):
 
 
 class SpawnPieceTests(BridgeTestCase):
+    def test_codex_rename_resubmitted_when_enter_is_dropped(self):
+        found = iter([None, None, None, None, "thread"])
+        enters = []
+        with mock.patch.object(tmux, "capture", return_value="› /rename cdx\n  model · ~/x"), \
+             mock.patch.object(tmux, "send_enter", side_effect=enters.append), \
+             mock.patch.object(spawn.time, "sleep"):
+            self.assertEqual(spawn._await_codex_thread("%1", "cdx", lambda: next(found), True), "thread")
+        self.assertEqual(enters, ["%1"])
+
+    def test_codex_rename_not_resubmitted_once_composer_is_clear(self):
+        enters = []
+        with mock.patch.object(tmux, "capture", return_value="› Ask Codex to do anything"), \
+             mock.patch.object(tmux, "send_enter", side_effect=enters.append), \
+             mock.patch.object(spawn.time, "sleep"):
+            self.assertIsNone(spawn._await_codex_thread("%1", "cdx", lambda: None, True, attempts=6))
+        self.assertEqual(enters, [])
+
     def test_launch_script_scrubs_inherited_identity(self):
         path = spawn._launch_script("x", "/tmp", ["claude", "-n", "x", "do it; rm -rf /"], {"BRIDGE_NAME": "x", "K": "a b"})
         text = path.read_text()
@@ -423,6 +440,24 @@ class SpawnPieceTests(BridgeTestCase):
         hook.chmod(0o755)
         env = spawn._hooks_env(spawn.Request(runtime="codex", dir="/tmp"), "cdx")
         self.assertEqual(env, {"MY_TOKEN": "cdx-secret"})
+
+    def test_launch_script_drops_gateway_overrides(self):
+        path = spawn._launch_script("x", "/tmp", ["/bin/sh", "-c", "env"], {"BRIDGE_NAME": "child"})
+        env = dict(os.environ, ANTHROPIC_BASE_URL="http://gw:1", ANTHROPIC_AUTH_TOKEN="t", BRIDGE_NAME="parent")
+        out = subprocess.run(["/bin/sh", str(path)], capture_output=True, text=True, env=env).stdout
+        self.assertNotIn("ANTHROPIC_BASE_URL", out)
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", out)
+
+    def test_pre_launch_hook_cannot_reroute_the_lane(self):
+        hooks = self.root / "config" / "pre-launch.d"
+        hooks.mkdir()
+        hook = hooks / "10-gw"
+        hook.write_text("#!/bin/sh\necho ANTHROPIC_BASE_URL=http://gw:1\necho ANTHROPIC_AUTH_TOKEN=t\necho ANTHROPIC_API_KEY=k\necho OK=1\n")
+        hook.chmod(0o755)
+        with redirect_stderr(io.StringIO()) as err:
+            env = spawn._hooks_env(spawn.Request(runtime="claude", dir="/tmp"), "bld")
+        self.assertEqual(env, {"OK": "1"})
+        self.assertIn("ANTHROPIC_BASE_URL", err.getvalue())
 
     def test_depth_guard(self):
         os.environ["AGENT_BRIDGE_DEPTH"] = "2"

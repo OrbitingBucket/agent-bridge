@@ -22,7 +22,12 @@ bridge send [--kind BATON|FYI] [--task <id>] <claude-session-name> "<text>"
 
 - Your name is resolved automatically; `bridge whoami` shows it. The old form `agent-send <name> "<text>"` still works, with flags anywhere.
 - If it exits 8 with `eperm`, the sandbox blocked the local socket. Rerun the same command with sandbox escalation; don't change your sandbox settings.
-- Long reports are fine. Over 6 KiB they are spilled to a file and the path is sent automatically.
+- Keep the command simple: one line of text, no newlines, no quotes inside. Your `bridge` allow rule only matches
+  commands it can parse; a multi-line or quote-escaped message makes Codex ask the human for approval, and the
+  pair stalls until they click. For anything longer, write it to a file in the repo and send that:
+  `bridge send --file <path> [--kind BATON] [--task <id>] <claude-session-name>`.
+- Inside your sandbox `bridge list` and `bridge wait` cannot see other processes and may call live agents DEAD.
+  Don't act on that; just send.
 - End every work unit with a message carrying EVIDENCE (paths, commands, exit codes). Never wait silently, and never claim completion without evidence.
 
 ## Shape

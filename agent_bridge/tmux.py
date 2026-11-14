@@ -27,16 +27,36 @@ def has_session(name: str) -> bool:
     return _run("has-session", "-t", name).returncode == 0
 
 
+def binary() -> str:
+    return shutil.which("tmux") or "tmux"
+
+
+def new_grouped_session(name: str, group: str) -> bool:
+    """A second session sharing `group`'s windows with its own current window: one more view of the same agents."""
+    return _run("new-session", "-d", "-t", group, "-s", name).returncode == 0
+
+
+def select_window(target: str) -> None:
+    _run("select-window", "-t", target)
+
+
+def kill_session(name: str) -> None:
+    _run("kill-session", "-t", name)
+
+
+HOME_WINDOW = "home"
+
+
 def new_window(session: str, name: str, command: str) -> str:
-    """Create a window running `command` and return its STABLE pane id (%N)."""
-    fmt = "#{pane_id}"
-    window = ("new-window", "-d", "-P", "-F", fmt, "-t", f"{session}:", "-n", name, command)
-    if has_session(session):
-        res = _run(*window)
-    else:
-        res = _run("new-session", "-d", "-P", "-F", fmt, "-s", session, "-n", name, "-x", "220", "-y", "50", command)
-        if res.returncode != 0 and has_session(session):  # a concurrent spawn created the session first
-            res = _run(*window)
+    """Create a window running `command` in the one agent session and return its STABLE pane id (%N).
+
+    The session is created on first use with a plain shell window (`home`) so it outlives its agents: the human
+    attaches once (`tmux attach -t <session>`) and every agent appears as one more window there."""
+    if not has_session(session):
+        res = _run("new-session", "-d", "-s", session, "-n", HOME_WINDOW, "-x", "220", "-y", "50")
+        if res.returncode != 0 and not has_session(session):  # not a concurrent spawn creating it first
+            raise RuntimeError(res.stderr.strip() or "tmux failed to create the session")
+    res = _run("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"{session}:", "-n", name, command)
     if res.returncode != 0:
         raise RuntimeError(res.stderr.strip() or "tmux failed to create the window")
     return res.stdout.strip()
@@ -68,6 +88,10 @@ def type_text(pane_id: str, text: str) -> None:
     """Two-step send: a same-call Enter races the paste and leaves the text unsubmitted."""
     _run("send-keys", "-t", pane_id, "-l", text)
     time.sleep(1)
+    send_enter(pane_id)
+
+
+def send_enter(pane_id: str) -> None:
     _run("send-keys", "-t", pane_id, "Enter")
 
 

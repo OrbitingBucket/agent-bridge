@@ -4,7 +4,7 @@ This file is the source of truth for how agents talk over the bridge. The Claude
 
 ## 1. Topology
 
-- Each agent runs in its own window of one tmux session, `relay` by default. The launcher brings that window to the front of the human's view, unless `FOCUS=0`.
+- Each agent runs in its own window of one tmux session, `relay` by default. The launcher brings that window to the front of the human's view, unless `FOCUS=0`. The session keeps a plain `home` window so it survives when every agent is gone; the human attaches once and sees each agent as a window. Terminal tabs per agent are an opt-in (`TERMINAL=kitty|iterm`), off by default.
 - Claude ↔ Claude: native `SendMessage` / `ListAgents`. `bridge send` also works.
 - Claude → Codex: `bridge send <name> "<text>"`. This calls `codex queue` to deliver into the running Codex TUI. A dead peer is an error (exit 3), never a silently parked message.
 - Codex → Claude: `bridge send <claude-session> "<text>"`. This writes into the Claude session's peer socket. The Codex sandbox may need to escalate the command (exit 8 means `eperm`).

@@ -192,8 +192,19 @@ env and can come up unreachable.
   how agents sweep each other's files into commits. `--shared` only for lanes
   with provably disjoint files.
 - Every builder costs the human's account — prefer fewer, better-scoped builders.
-- Each new agent is a tmux window, brought to the front of the human's view
-  unless they set `FOCUS=0`. If a spawn prints `ACTION NEEDED`, a dialog only
+- Lanes run plain `claude` / `codex` on this machine's own logins. Never route
+  a lane through a gateway or wrapper (claude-gw, OmniRoute, LiteLLM, an
+  `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` override, a pre-launch hook that
+  sets `ANTHROPIC_*`): the bridge strips those variables and ignores such hook
+  output. A gateway run is a headless job (`claude-gw -p …`), never a lane.
+  Model flags on a lane are the CLI aliases (`-m opus`, `-m sonnet`).
+- Every agent is one window of the single tmux session `relay` (created with a
+  permanent `home` shell window, so it outlives its agents). The human attaches
+  once (`tmux attach -t relay`) and switches windows with the tmux keys; new
+  windows come to the front unless they set `FOCUS=0`. Never open terminal tabs
+  or extra tmux sessions for agents (`TERMINAL=kitty|iterm` is an opt-in the
+  human sets themselves).
+  If a spawn prints `ACTION NEEDED`, a dialog only
   the human can answer (folder trust) is holding it; the bridge has already
   alerted them. Never type into that window and never run `bridge trust`
   yourself (human only, exit 77) — tell the human and wait for the spawn.

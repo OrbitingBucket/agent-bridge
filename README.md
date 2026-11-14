@@ -3,7 +3,7 @@
 Local messaging, spawning and supervision for **Claude Code** and **OpenAI Codex CLI** agents on one machine. Claude can talk to Claude, Claude to Codex, and Codex back to Claude. Delivery is push-only: no polling, no heartbeats, no shared files.
 
 ```
- bridge spawn codex -d ~/code/app -n app-cdx -t "fix the flaky test"     # new tmux window, focused
+ bridge spawn codex -d ~/code/app -n app-cdx -t "fix the flaky test"     # one more window of the tmux session, focused
  bridge send app-cdx "BATON: yours ..."          # Claude → Codex   (codex queue, liveness-checked)
  bridge send app-orc "DID: ... EVIDENCE: ..."    # Codex → Claude   (Claude peer socket)
  bridge list                                      # who is reachable; who is BLOCKED on a dialog
@@ -54,7 +54,7 @@ The installer makes these changes, each one printed and reversible with `./unins
 
 ## Configure
 
-`~/.config/agent-bridge/config` uses `KEY=VALUE` lines; see `config/config.example`. Machine- or company-specific setup belongs in a **pre-launch hook**, not in this repo. A hook is an executable in `~/.config/agent-bridge/pre-launch.d/`, and each `KEY=VALUE` line it prints is exported into the new agent's environment (`hooks/pre-launch.d/README.md`). A typical use is refreshing an MCP token.
+`~/.config/agent-bridge/config` uses `KEY=VALUE` lines; see `config/config.example`. Machine- or company-specific setup belongs in a **pre-launch hook**, not in this repo. A hook is an executable in `~/.config/agent-bridge/pre-launch.d/`, and each `KEY=VALUE` line it prints is exported into the new agent's environment (`hooks/pre-launch.d/README.md`). A typical use is refreshing an MCP token. Hook output cannot set `ANTHROPIC_*` variables, and `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` are stripped from every launch: a lane runs on this machine's own Claude login, never through a gateway.
 
 ## Spawning without friction
 
@@ -63,6 +63,7 @@ The installer makes these changes, each one printed and reversible with `./unins
 - **Effort per lane.** `--effort low|medium|high` (also on `team` and `resume`), with defaults in `CLAUDE_EFFORT` / `CODEX_EFFORT`. Without it a spawned agent runs at your own interactive setting, which is usually the maximum.
 - **Folder trust.** Both runtimes ask once before working in a new repository, and the bridge never answers for you. Run `bridge trust <dir>` once per repository to settle it for Codex ahead of time; it covers the repository's subfolders and worktrees, under every profile. It refuses to run for an agent (exit 77). Claude Code asks once per new git repository and keeps that answer itself.
 - **Dialog alert.** When a dialog does hold a launch, every attached tmux client gets a status-line message naming the window, and that window is highlighted in the status bar until the launch resolves. This matters with `FOCUS=0`, where the window is not brought to the front.
+- **One session, one window per agent.** Every agent is a window of the single tmux session (`relay`), which is created with a permanent `home` shell window so it outlives its agents: attach once with `tmux attach -t relay` and switch windows with the tmux keys. Opt-in only: `TERMINAL=kitty` or `iterm` also opens a terminal tab per agent, attached to a private view of the session (`view-<name>`), closed by `bridge stop`; `FOCUS=0` opens it in the background.
 
 ## Layout
 
@@ -80,6 +81,10 @@ The installer makes these changes, each one printed and reversible with `./unins
 - **Codex readiness and thread naming rely on its TUI.** The launcher waits for the composer, never types into a dialog (folder trust, hook trust, update prompt), and closes the window on timeout with the last screen lines.
 - **Codex 0.160 ignores the command-line trust override for a git repository**, and it saves an answer given in the dialog into the profile file that was active. `bridge trust` writes the base `config.toml` instead, which every profile is layered on.
 - **A Codex sandbox in `workspace-write` may deny the socket connect** (`bridge send` exit 8, `eperm`). Approve the escalation once; with the installed allow rule, Codex can run `bridge` without asking.
+- **The allow rule only matches simple commands.** A `bridge send` whose text spans lines or escapes quotes is not
+  matched, so Codex asks for approval and the lane stalls. Codex sends long reports with `--file <path>`.
+- **Inside a Codex sandbox, `bridge list` and `bridge wait` see live agents as DEAD** (the sandbox hides other
+  processes). Run them from the orchestrator's side.
 
 ## License
 

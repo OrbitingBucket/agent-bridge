@@ -5,7 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
-from . import claude, config, doctor, events, messaging, registry, spawn, trust, wait
+from . import claude, config, doctor, events, messaging, registry, spawn, terminal, trust, wait
 from .identity import whoami
 
 COMPAT = {"agent-send", "codex-send", "codex-relay", "claude-relay", "team-up", "agent-kick"}
@@ -313,6 +313,8 @@ def cmd_gc(args) -> int:
     else:
         dead = registry.gc()
         events.emit("gc", removed=len(dead))
+        for a in dead:
+            terminal.close_tab(a.name)
     for a in dead:
         print(f"{'would remove' if args.dry_run else 'removed'} {a.name} ({a.runtime}, pid {a.pid})")
     print(f"{len(dead)} dead entr{'y' if len(dead) == 1 else 'ies'}")

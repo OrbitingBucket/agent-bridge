@@ -4,7 +4,8 @@
 TMUX_SESSION=relay
 # How prompts and briefs refer to the person in charge.
 HUMAN=the human
-# none | iterm — iterm also opens an iTerm tab attached to each new agent (macOS).
+# none (default: every agent is a window of the one tmux session) | kitty | iterm (opt-in: also a terminal tab per agent)
+# | auto (the terminal you spawn from).
 TERMINAL=none
 # Bring each new agent window to the front of your attached tmux view.
 FOCUS=1
